@@ -2,12 +2,18 @@
 import { google } from "googleapis";
 import nodemailer from "nodemailer";
 
-export default async function handler(req, res) {
-  // Basic CORS handling for testing (adjust allowed origin for production)
-  res.setHeader("Access-Control-Allow-Origin", "*");
+function setCORS(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://amaltairou.framer.website"); // 👈 safer than *
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
+}
+
+export default async function handler(req, res) {
+  setCORS(res);
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
@@ -25,12 +31,12 @@ export default async function handler(req, res) {
     deadline,
   } = body;
 
-  // Validate
   if (!service || !name || !email) {
-    return res.status(400).json({ ok: false, message: "Missing required fields" });
+    return res
+      .status(400)
+      .json({ ok: false, message: "Missing required fields" });
   }
 
-  // Required env vars
   const {
     GOOGLE_SERVICE_ACCOUNT,
     SPREADSHEET_ID,
@@ -42,14 +48,18 @@ export default async function handler(req, res) {
   } = process.env;
 
   if (!GOOGLE_SERVICE_ACCOUNT || !SPREADSHEET_ID) {
-    return res.status(500).json({ ok: false, message: "Missing Google Sheets config" });
+    return res
+      .status(500)
+      .json({ ok: false, message: "Missing Google Sheets config" });
   }
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !MY_EMAIL) {
-    return res.status(500).json({ ok: false, message: "Missing SMTP config" });
+    return res
+      .status(500)
+      .json({ ok: false, message: "Missing SMTP config" });
   }
 
   try {
-    // 1) Append to Google Sheet
+    // 1) Google Sheets
     const auth = new google.auth.GoogleAuth({
       credentials: JSON.parse(GOOGLE_SERVICE_ACCOUNT),
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -62,25 +72,27 @@ export default async function handler(req, res) {
       range: "Sheet1!A1",
       valueInputOption: "RAW",
       requestBody: {
-        values: [[
-          new Date().toISOString(),
-          service,
-          name,
-          email,
-          description || "",
-          pages || "",
-          projectType || "",
-          budget || "",
-          deadline || "",
-        ]],
+        values: [
+          [
+            new Date().toISOString(),
+            service,
+            name,
+            email,
+            description || "",
+            pages || "",
+            projectType || "",
+            budget || "",
+            deadline || "",
+          ],
+        ],
       },
     });
 
-    // 2) Send email via SMTP
+    // 2) Email
     const transporter = nodemailer.createTransport({
       host: SMTP_HOST,
       port: Number(SMTP_PORT),
-      secure: Number(SMTP_PORT) === 465, // true for 465, false for 587
+      secure: Number(SMTP_PORT) === 465,
       auth: { user: SMTP_USER, pass: SMTP_PASS },
     });
 
@@ -107,6 +119,8 @@ Deadline: ${deadline || "-"}
     return res.status(200).json({ ok: true, message: "Saved & emailed" });
   } catch (error) {
     console.error("submit-form error:", error);
-    return res.status(500).json({ ok: false, message: "Server error", error: error.message });
+    return res
+      .status(500)
+      .json({ ok: false, message: "Server error", error: error.message });
   }
 }
