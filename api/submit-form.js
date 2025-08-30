@@ -1,66 +1,57 @@
-// api/submit-form.js
+// app/api/submit-form/route.js
 import { google } from "googleapis";
 import nodemailer from "nodemailer";
+import { NextResponse } from "next/server";
 
-function setCORS(res) {
-res.setHeader("Access-Control-Allow-Origin", "https://amaltairou.framer.website");
-res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-if (req.method === "OPTIONS") return res.status(200).end();
-}
+// For CORS: allow requests from your Framer site
+const ALLOWED_ORIGINS = ["https://amaltairou.framer.website"];
 
-export default async function handler(req, res) {
-  setCORS(res);
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, message: "Method not allowed" });
-  }
-
-  const body = req.body || {};
-  const {
-    service,
-    name,
-    email,
-    description,
-    pages,
-    projectType,
-    budget,
-    deadline,
-  } = body;
-
-  if (!service || !name || !email) {
-    return res
-      .status(400)
-      .json({ ok: false, message: "Missing required fields" });
-  }
-
-  const {
-    GOOGLE_SERVICE_ACCOUNT,
-    SPREADSHEET_ID,
-    SMTP_HOST,
-    SMTP_PORT,
-    SMTP_USER,
-    SMTP_PASS,
-    MY_EMAIL,
-  } = process.env;
-
-  if (!GOOGLE_SERVICE_ACCOUNT || !SPREADSHEET_ID) {
-    return res
-      .status(500)
-      .json({ ok: false, message: "Missing Google Sheets config" });
-  }
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !MY_EMAIL) {
-    return res
-      .status(500)
-      .json({ ok: false, message: "Missing SMTP config" });
-  }
-
+export async function POST(req) {
   try {
-    // 1) Google Sheets
+    const origin = req.headers.get("origin");
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+      return NextResponse.json(
+        { ok: false, message: "Origin not allowed" },
+        { status: 403 }
+      );
+    }
+
+    const body = await req.json();
+    const {
+      service,
+      name,
+      email,
+      description,
+      pages,
+      projectType,
+      budget,
+      deadline,
+    } = body;
+
+    if (!service || !name || !email) {
+      return NextResponse.json(
+        { ok: false, message: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    // Env vars
+    const {
+      GOOGLE_SERVICE_ACCOUNT,
+      SPREADSHEET_ID,
+      SMTP_HOST,
+      SMTP_PORT,
+      SMTP_USER,
+      SMTP_PASS,
+      MY_EMAIL,
+    } = process.env;
+
+    if (!GOOGLE_SERVICE_ACCOUNT || !SPREADSHEET_ID)
+      throw new Error("Missing Google Sheets config");
+    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !MY_EMAIL)
+      throw new Error("Missing SMTP config");
+
+    // ===== 1) Append to Google Sheet =====
     const auth = new google.auth.GoogleAuth({
       credentials: JSON.parse(GOOGLE_SERVICE_ACCOUNT),
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
@@ -89,7 +80,7 @@ export default async function handler(req, res) {
       },
     });
 
-    // 2) Email
+    // ===== 2) Send email =====
     const transporter = nodemailer.createTransport({
       host: SMTP_HOST,
       port: Number(SMTP_PORT),
@@ -117,11 +108,23 @@ Deadline: ${deadline || "-"}
       text,
     });
 
-    return res.status(200).json({ ok: true, message: "Saved & emailed" });
+    return NextResponse.json({ ok: true, message: "Saved & emailed" }, { status: 200 });
   } catch (error) {
     console.error("submit-form error:", error);
-    return res
-      .status(500)
-      .json({ ok: false, message: "Server error", error: error.message });
+    return NextResponse.json(
+      { ok: false, message: "Server error", error: error.message },
+      { status: 500 }
+    );
   }
+}
+
+// ===== OPTIONS handler for CORS preflight =====
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    headers: {
+      "Access-Control-Allow-Origin": ALLOWED_ORIGINS.join(","),
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
 }
